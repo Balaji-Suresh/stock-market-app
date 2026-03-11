@@ -1,0 +1,372 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Stock Market Application - Lambda Backend + Amplify Frontend'
+
+Parameters:
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: GitHub Personal Access Token for Amplify
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository URL (e.g., https://github.com/username/stock-market-app)
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: GitHub branch name
+  AlphaVantageApiKey:
+    Type: String
+    NoEcho: true
+    Description: Alpha Vantage API Key
+  JWTSecret:
+    Type: String
+    NoEcho: true
+    Description: JWT Secret for authentication
+
+Resources:
+  # DynamoDB Tables
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: EmailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  TransactionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Transactions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: transactionId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: transactionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  PortfolioTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Portfolio
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: symbol
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: symbol
+          KeyType: RANGE
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt UsersTable.Arn
+                  - !GetAtt TransactionsTable.Arn
+                  - !GetAtt PortfolioTable.Arn
+                  - !Sub '${UsersTable.Arn}/index/*'
+                  - !Sub '${TransactionsTable.Arn}/index/*'
+
+  # Lambda Layer for Dependencies
+  LambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: stock-market-dependencies
+      Description: Dependencies for stock market backend
+      Content:
+        S3Bucket: !Ref LambdaDeploymentBucket
+        S3Key: lambda-layer.zip
+      CompatibleRuntimes:
+        - nodejs18.x
+
+  # Lambda Functions
+  AuthFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: stock-market-auth
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Layers:
+        - !Ref LambdaLayer
+      Code:
+        S3Bucket: !Ref LambdaDeploymentBucket
+        S3Key: auth-function.zip
+      Environment:
+        Variables:
+          JWT_SECRET: !Ref JWTSecret
+          USERS_TABLE: !Ref UsersTable
+      Timeout: 30
+
+  StocksFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: stock-market-stocks
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Layers:
+        - !Ref LambdaLayer
+      Code:
+        S3Bucket: !Ref LambdaDeploymentBucket
+        S3Key: stocks-function.zip
+      Environment:
+        Variables:
+          ALPHA_VANTAGE_API_KEY: !Ref AlphaVantageApiKey
+          PORTFOLIO_TABLE: !Ref PortfolioTable
+          JWT_SECRET: !Ref JWTSecret
+      Timeout: 30
+
+  TradingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: stock-market-trading
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Layers:
+        - !Ref LambdaLayer
+      Code:
+        S3Bucket: !Ref LambdaDeploymentBucket
+        S3Key: trading-function.zip
+      Environment:
+        Variables:
+          TRANSACTIONS_TABLE: !Ref TransactionsTable
+          PORTFOLIO_TABLE: !Ref PortfolioTable
+          JWT_SECRET: !Ref JWTSecret
+          ALPHA_VANTAGE_API_KEY: !Ref AlphaVantageApiKey
+      Timeout: 30
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: stock-market-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+
+  # Lambda Integrations
+  AuthIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AuthFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  StocksIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt StocksFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  TradingIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt TradingFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # API Routes
+  AuthRegisterRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /api/auth/register'
+      Target: !Sub 'integrations/${AuthIntegration}'
+
+  AuthLoginRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /api/auth/login'
+      Target: !Sub 'integrations/${AuthIntegration}'
+
+  StocksPriceRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /api/stocks/price/{symbol}'
+      Target: !Sub 'integrations/${StocksIntegration}'
+
+  StocksRecommendationRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /api/stocks/recommendation/{symbol}'
+      Target: !Sub 'integrations/${StocksIntegration}'
+
+  StocksPortfolioRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /api/stocks/portfolio'
+      Target: !Sub 'integrations/${StocksIntegration}'
+
+  TradingBuyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /api/trading/buy'
+      Target: !Sub 'integrations/${TradingIntegration}'
+
+  TradingSellRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /api/trading/sell'
+      Target: !Sub 'integrations/${TradingIntegration}'
+
+  TradingTransactionsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /api/trading/transactions'
+      Target: !Sub 'integrations/${TradingIntegration}'
+
+  # API Stage
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ApiGateway
+      StageName: $default
+      AutoDeploy: true
+
+  # Lambda Permissions
+  AuthFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AuthFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*'
+
+  StocksFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref StocksFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*'
+
+  TradingFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TradingFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*'
+
+  # S3 Bucket for Lambda Deployment
+  LambdaDeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'stock-market-lambda-${AWS::AccountId}'
+
+  # Amplify App
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: stock-market-frontend
+      Repository: !Ref GitHubRepo
+      AccessToken: !Ref GitHubToken
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            preBuild:
+              commands:
+                - cd frontend
+                - npm ci
+            build:
+              commands:
+                - npm run build
+          artifacts:
+            baseDirectory: frontend/build
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - frontend/node_modules/**/*
+      EnvironmentVariables:
+        - Name: REACT_APP_API_URL
+          Value: !GetAtt ApiGateway.ApiEndpoint
+
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: !Ref GitHubBranch
+      EnableAutoBuild: true
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway Endpoint
+    Value: !GetAtt ApiGateway.ApiEndpoint
+  AmplifyAppUrl:
+    Description: Amplify App URL
+    Value: !Sub 'https://${GitHubBranch}.${AmplifyApp.DefaultDomain}'
+  LambdaDeploymentBucket:
+    Description: S3 Bucket for Lambda Deployment
+    Value: !Ref LambdaDeploymentBucket

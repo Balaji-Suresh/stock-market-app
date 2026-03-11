@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "GitHubRepo",
+    "ParameterValue": "https://github.com/your-username/stock-market-app"
+  },
+  {
+    "ParameterKey": "GitHubToken",
+    "ParameterValue": "your-github-token"
+  },
+  {
+    "ParameterKey": "GitHubBranch",
+    "ParameterValue": "main"
+  },
+  {
+    "ParameterKey": "AlphaVantageApiKey",
+    "ParameterValue": "your-alpha-vantage-api-key"
+  },
+  {
+    "ParameterKey": "JWTSecret",
+    "ParameterValue": "your-jwt-secret"
+  }
+]

@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+*/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables (NEVER commit these)
+.env
+*/.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build outputs
+build/
+dist/
+*/build/
+*/dist/
+
+# AWS deployment artifacts
+*.zip
+lambda-layer.zip
+auth-function.zip
+stocks-function.zip
+trading-function.zip
+
+# Lambda layer build artifacts
+lambda/layer/nodejs/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output
+
+# AWS credentials (should NEVER be committed)
+.aws/
+credentials
+config
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Package lock files (optional - some teams prefer to commit these)
+# package-lock.json
+# yarn.lock
