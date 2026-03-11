@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Stock Market Application
 
 A full-stack stock market application with React.js frontend, Express.js backend (with Lambda deployment option), DynamoDB database, and AI research assistant.
@@ -162,3 +163,6 @@ Estimated monthly cost for moderate usage: $5-20
 ## 📄 License
 
 This project is licensed under the MIT License.
+=======
+# stock-market-app
+>>>>>>> 01c35de1cb4fd28394366d5fe0556e8a9621087a
